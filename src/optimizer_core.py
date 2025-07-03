@@ -1,9 +1,19 @@
-import pdfplumber
-import docx
+from typing_extensions import TypedDict, Annotated
+from operator import add
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, END
+
+
+class ResumeState(TypedDict):
+    bullet_points: Annotated[str, add]
+    intro_objectives: Annotated[str, add]
+    analyze_bullets: Annotated[str, add]
+    analyze_intro: Annotated[str, add]
+    summarize_bullets: Annotated[str, add]
+    summarize_intro: Annotated[str, add]
+    generate_resume: Annotated[str, add]
 
 
 llm = ChatOpenAI(
@@ -11,36 +21,6 @@ llm = ChatOpenAI(
     openai_api_key="sk-wsSXBy9BTQgVlWzdba2HDw",
     model="Meta-Llama-4-Maverick-17B-128E-Instruct-FP8",
 )
-
-
-def extract_text_from_pdf(file):
-    with pdfplumber.open(file) as pdf:
-        return "\n".join([page.extract_text() or "" for page in pdf.pages])
-
-
-def extract_from_docx(file):
-    doc = docx.Document(file)
-    return "\n".join([para.text for para in doc.paragraphs])
-
-
-def extract_bullets(text):
-    return "\n".join(
-        [line for line in text.splitlines() if line.strip().startswith("-")]
-    )
-
-
-def extract_intro(text):
-    return "\n".join(
-        [line for line in text.splitlines() if "objective" in line.lower()]
-    )
-
-
-# --- LangChain Nodes ---
-def parse_resume(text):
-    return {
-        "bullet_points": extract_bullets(text),
-        "intro_objectives": extract_intro(text),
-    }
 
 
 analyze_bullets = (
@@ -87,7 +67,7 @@ Introduction & Objectives:
 
 
 def build_optimizer_graph():
-    builder = StateGraph()
+    builder = StateGraph(ResumeState)
     builder.add_node("parse", RunnableLambda(parse_resume))
     builder.add_node(
         "analyze_bullets",
@@ -126,12 +106,12 @@ def build_optimizer_graph():
     )
 
     builder.set_entry_point("parse")
-    builder.connect("parse", "analyze_bullets")
-    builder.connect("parse", "analyze_intro")
-    builder.connect("analyze_bullets", "summarize_bullets")
-    builder.connect("analyze_intro", "summarize_intro")
-    builder.connect("summarize_bullets", "generate_resume")
-    builder.connect("summarize_intro", "generate_resume")
-    builder.set_finish_point("generate_resume")
+    builder.add_edge("parse", "analyze_bullets")
+    builder.add_edge("parse", "analyze_intro")
+    builder.add_edge("analyze_bullets", "summarize_bullets")
+    builder.add_edge("analyze_intro", "summarize_intro")
+    builder.add_edge("summarize_bullets", "generate_resume")
+    builder.add_edge("summarize_intro", "generate_resume")
+    builder.add_edge("generate_resume", END)
 
     return builder.compile()
